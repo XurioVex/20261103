@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang=zh>
+<head>
+<meta charset=UTF-8>
+<meta name=viewport content=width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no>
+<title>Interactive Particle Christmas Tree - Star Edition</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+canvas{display:block;width:100%;height:100%;touch-action:none;}
+#err{position:fixed;top:10px;left:10px;right:10px;color:#f88;font:14px monospace;white-space:pre-wrap;z-index:9;}
+
+#card{
+  position:fixed;z-index:5;pointer-events:none;
+  display:flex;flex-direction:column;align-items:center;white-space:nowrap;line-height:1.2;
+  filter:drop-shadow(0 0 16px rgba(255,255,255,0.7)) drop-shadow(0 0 6px rgba(220,90,255,0.7));
+}
+.ln{
+  display:block;padding:0.12em 0.15em;color:inherit;
+  clip-path:inset(-25% 100% -25% -5%);
+}
+@keyframes write{
+  from{clip-path:inset(-25% 100% -25% -5%);}
+  to{clip-path:inset(-25% -8% -25% -5%);}
+}
+
+#star-trigger {
+  position: fixed; top: 20px; right: 20px; z-index: 20;
+  width: 44px; height: 44px;
+  background: rgba(30, 15, 45, 0.6);
+  border: 1px solid rgba(255, 200, 100, 0.4);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; backdrop-filter: blur(8px);
+  font-size: 20px; color: #ffeb99;
+  box-shadow: 0 0 15px rgba(255, 200, 100, 0.4);
+  transition: all 0.3s ease;
+}
+#star-trigger:hover {
+  transform: scale(1.1);
+  background: rgba(60, 25, 80, 0.8);
+  box-shadow: 0 0 22px rgba(255, 200, 100, 0.7);
+}
+
+#control-panel {
+  position: fixed; top: 76px; right: 20px; z-index: 20;
+  width: 280px; background: rgba(15, 10, 25, 0.82);
+  border: 1px solid rgba(255, 150, 220, 0.25);
+  border-radius: 16px; padding: 20px; backdrop-filter: blur(14px);
+  box-shadow: 0 15px 35px rgba(0,0,0,0.8);
+  display: none; color: #fff; font-size: 13px;
+  animation: fadeIn 0.3s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+#control-panel h3 {
+  margin: 0 0 14px 0; font-size: 15px; color: #ff9be6;
+  border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 6px;
+  letter-spacing: 0.5px;
+}
+.control-group { margin-bottom: 12px; }
+.control-group label { display: block; margin-bottom: 4px; color: #ccc; font-size: 12px; letter-spacing: 0.3px; }
+.control-group input[type="text"], .control-group select, .control-group input[type="file"] {
+  width: 100%; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.15);
+  color: #fff; padding: 6px 10px; border-radius: 8px; box-sizing: border-box; font-size: 13px;
+}
+.control-group input[type="file"] { padding: 4px; font-size: 11px; cursor: pointer; }
+.action-btn {
+  width: 100%; background: rgba(80, 30, 100, 0.6);
+  border: 1px solid rgba(255, 150, 220, 0.4);
+  color: #fff; padding: 8px 14px; border-radius: 10px;
+  cursor: pointer; font-size: 13px; transition: all 0.3s;
+  margin-top: 6px; text-align: center;
+}
+.action-btn:hover { background: rgba(120, 45, 150, 0.8); border-color: rgba(255, 150, 220, 0.8); }
+</style>
+</head>
+<body>
+<canvas id=c></canvas>
+<div id=card><span class=ln id=l1></span><span class=ln id=l2></span></div>
+<div id=err></div>
+
+<div id="star-trigger" title="Customize Card">⭐</div>
+
+<div id="control-panel">
+  <h3>✨ Customize Greeting</h3>
+  <div class="control-group">
+    <label>Line 1</label>
+    <input type="text" id="input-l1" value="高诗茜 祝你开心,幸福">
+  </div>
+  <div class="control-group">
+    <label>Line 2</label>
+    <input type="text" id="input-l2" value="在数不尽的每一天">
+  </div>
+  <div class="control-group">
+    <label>Soundtrack</label>
+    <select id="bgm-select">
+      <option value="song.mp3">Custom BGM (song.mp3)</option>
+      <option value="https://cdnjs.cloudflare.com/ajax/libs/mediaelement/4.2.16/sample.mp3">Crystal Music Box</option>
+    </select>
+  </div>
+  <div class="control-group">
+    <label>Upload Local Audio (MP3)</label>
+    <input type="file" id="local-music-file" accept="audio/*">
+  </div>
+  <button class="action-btn" id="music-toggle">🎵 Play / Pause Music</button>
+  <button class="action-btn" id="save-share">🔗 Generate Share Link</button>
+</div>
+
+<!-- 核心修改：将音频默认路径指向同目录下的 song.mp3 -->
+<audio id="bgm-audio" loop preload="auto">
+  <source src="song.mp3" type="audio/mp3">
+</audio>
+
+<script>
+const urlParams = new URLSearchParams(location.search);
+const customL1 = urlParams.get('l1');
+const customL2 = urlParams.get('l2');
+
+const CONFIG={
+  mobileDensity:0.5, mobileMaxPR:1.6, adaptive:true,
+  snowOn:true, snowCount:3600, snowNear:0.12, snowMove:0.0, snowMicro:0.035, snowSpark:1.3, snowSize:1.2, snowAlpha:0.95, snowStreak:0.35, snowStreakLen:0.55,
+  treeCount:48000, treeSize:0.68, treeAlpha:0.62, treeBright:1.15, treeGlow:0.42, treeDrift:1.6, treeWave:0.6, treeDroop:0.55, treeFeather:0.55,
+  ribbonStrands:2, ribbonCount:6800, ribbonTurns:2.6, ribbonSpeed:0.02, ribbonRotate:0.06, ribbonRadius:3.7, ribbonRmin:0.25, ribbonWidth:0.34, ribbonSize:0.58, ribbonAlpha:0.95, ribbonBright:1.25, ribbonY0:0.45, ribbonHeight:7.0, ribbonTilt:0.07, ribbonComet:0.9, groundTrace:1300,
+  lightCount:750, lightSize:1.8, lightAlpha:0.95, lightBright:1.25,
+  trunkCount:1800, trunkBright:0.65, rootBright:0.40, rootSize:135, mistCount:2200,
+  starY:8.1, starParticles:2200, starOuterRadius:0.72, starInnerRadius:0.31, starParticleSize:0.78, starBright:3.0, starPulseSpeed:1.35, starFlarePx:120, starFlareBright:3.0, starCoreShrink:8.0, starArm:62, starGlow:1.1,
+  
+  showText:true,
+  textLine1: customL1 || `高诗茜 祝你开心,幸福`,
+  textLine2: customL2 || `在数不尽的每一天`,
+  textColor:`#fffef8`,
+  textGap:0.28,
+  textFont:`"Caveat","Reenie Beanie","Patrick Hand","Architects Daughter","Comic Sans MS",cursive`,
+  textDelay:1.2, textDur:1.6, textLeftL:4.5, textTopL:24, textSizeL:3.6, textLeftP:5, textTopP:7, textSizeP:7.2,
+
+  pulseCycle:8.0, pulseBright:1.5, pulseWave:0.12,
+  discCount:100000, discRadius:11.5, discY:-0.3, duneRings:5.8, duneHeight:0.60, duneFloor:0.52, duneFill:0.85, duneIrregular:1.0, duneGentle:0.68, duneRipple:0.06, duneContrast:0.85, duneWarm:0.30, discSize:0.88, discAlpha:0.75, discBright:1.40, centerDim:0.50, iceRate:0.04, sparkleRate:0.035, sparkleSpeed:3.0, sparkleBoost:1.8, flareRate:0.008, flareSize:5.0, spinSpeed:0.02, waveAmp:0.08, waveFreq:1.7, waveSpeed:1.4, waveFade:6.0, wavePulse:0.5,
+  backgroundStars:4000, bgFlareCount:0, bgFlarePx:80, bokehCount:70, bokehAlpha:0.12,
+  bloomStrength:1.0, bloomRadius:1.8, bloomRes:0.5,
+  autoRotate:0.0375, centerY:2.4, camDist:20, camTilt:0.15
+};
+
+const starTrigger = document.getElementById('star-trigger');
+const controlPanel = document.getElementById('control-panel');
+const musicToggle = document.getElementById('music-toggle');
+const bgmAudio = document.getElementById('bgm-audio');
+const inputL1 = document.getElementById('input-l1');
+const inputL2 = document.getElementById('input-l2');
+const bgmSelect = document.getElementById('bgm-select');
+const localMusicFile = document.getElementById('local-music-file');
+const saveShareBtn = document.getElementById('save-share');
+
+inputL1.value = CONFIG.textLine1;
+inputL2.value = CONFIG.textLine2;
+
+starTrigger.addEventListener('click', () => {
+  controlPanel.style.display = controlPanel.style.display === 'block' ? 'none' : 'block';
+});
+
+let isPlaying = false;
+musicToggle.addEventListener('click', () => {
+  if (isPlaying) {
+    bgmAudio.pause();
+    musicToggle.textContent = '🎵 Play Music';
+    isPlaying = false;
+  } else {
+    bgmAudio.play().then(() => {
+      musicToggle.textContent = '🔇 Pause Music';
+      isPlaying = true;
+    }).catch(e => {
+      alert('Autoplay blocked. Please click anywhere on the page first.');
+    });
+  }
+});
+
+bgmSelect.addEventListener('change', (e) => {
+  bgmAudio.src = e.target.value;
+  if (isPlaying) bgmAudio.play();
+});
+
+localMusicFile.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    const fileUrl = URL.createObjectURL(file);
+    bgmAudio.src = fileUrl;
+    bgmAudio.play().then(() => {
+      musicToggle.textContent = '🔇 Pause Music';
+      isPlaying = true;
+    }).catch(err => {
+      alert('Failed to play local audio.');
+    });
+  }
+});
+
+inputL1.addEventListener('input', (e) => {
+  CONFIG.textLine1 = e.target.value;
+  document.getElementById('l1').textContent = CONFIG.textLine1;
+});
+inputL2.addEventListener('input', (e) => {
+  CONFIG.textLine2 = e.target.value;
+  document.getElementById('l2').textContent = CONFIG.textLine2;
+});
+
+saveShareBtn.addEventListener('click', () => {
+  const params = new URLSearchParams();
+  params.set('l1', CONFIG.textLine1);
+  params.set('l2', CONFIG.textLine2);
+  const shareUrl = location.origin + location.pathname + '?' + params.toString();
+  
+  navigator.clipboard.writeText(shareUrl).then(() => {
+    alert('✅ Share link copied to clipboard!');
+  }).catch(() => {
+    prompt('Copy your custom share link:', shareUrl);
+  });
+});
+
+window.onerror=(m,s,l)=>{document.getElementById(`err`).textContent=`Error: `+m+` (line `+l+`)`;};
+const cv=document.getElementById(`c`);
+const gl=cv.getContext(`webgl`,{antialias:true,alpha:false});
+if(!gl)throw new Error(`WebGL not supported`);
+const mobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||innerWidth<768;
+const PR=Math.min(devicePixelRatio||1,mobile?CONFIG.mobileMaxPR:2);
+const PTR=gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE);
+let PMAX=64;
+if(PTR&&PTR.length>1&&PTR[1]>0)PMAX=PTR[1];
+const MAXPT=Math.min(PMAX,320*PR);
+
+const fontLink=document.createElement(`link`);
+fontLink.rel=`stylesheet`;
+fontLink.href=`https://fonts.googleapis.com/css2?family=Caveat:wght@600&family=Patrick+Hand&family=Reenie+Beanie&display=swap`;
+document.head.appendChild(fontLink);
+
+const card=document.getElementById(`card`);
+const ln1=document.getElementById(`l1`);
+const ln2=document.getElementById(`l2`);
+ln1.textContent=CONFIG.textLine1;
+ln2.textContent=CONFIG.textLine2;
+card.style.fontFamily=CONFIG.textFont;
+card.style.color=CONFIG.textColor;
+card.style.display=CONFIG.showText?`flex`:`none`;
+ln1.style.animation=`write ${CONFIG.textDur}s ease-out ${CONFIG.textDelay}s both`;
+ln2.style.animation=`write ${CONFIG.textDur}s ease-out ${CONFIG.textDelay+CONFIG.textDur*0.85}s both`;
+function layoutText(){
+  const portrait=innerWidth/innerHeight<1;
+  card.style.left=(portrait?CONFIG.textLeftP:CONFIG.textLeftL)+`vw`;
+  card.style.top=(portrait?CONFIG.textTopP:CONFIG.textTopL)+`vh`;
+  card.style.fontSize=(portrait?CONFIG.textSizeP:CONFIG.textSizeL)+`vw`;
+}
+layoutText();
+
+const VS=`
+precision highp float;
+attribute float aType,aSize,aSeed,aExtra;
+attribute vec3 aP,aColor;
+uniform float uTime,uRotY,uRotX,uDist,uAspect,uPR,uCY,uBP,uCycle,uK,uBoost,uMaxPt;
+uniform vec2 uRes;
+uniform float uTrDrift,uTrSize,uTrAlpha,uTrBright,uTrWave,uTrBloom;
+uniform float uRbR0,uRbRmin,uRbTurns,uRbSpeed,uRbRot,uRbW,uRbSize,uRbAlpha,uRbBright,uRbY0,uRbH,uRbTilt,uRbComet;
+uniform float uLtSize,uLtAlpha,uLtBright;
+uniform float uRootBright,uRootSize,uTrunkB;
+uniform float uStarY,uStarBright,uStarPulse,uStarFlarePx,uStarFlareBright,uStarCore,uStarArm,uStarGlow;
+uniform float uBgFlarePx,uBokehAlpha;
+uniform float uSnMove,uSnMicro,uSnSpark,uSnSize,uSnAlpha,uSnStreakLen;
+uniform float uDR,uDY,uDSz,uDA,uDB,uCD,uSpin,uWA,uWF,uWV,uWD,uWP,uSpS,uSpB,uFlS,uPulseB,uPulseW;
+varying vec4 vC;
+varying vec4 vP1;
+varying vec4 vP2;
+vec3 rotY(vec3 p,float a){float c=cos(a),s=sin(a);return vec3(c*p.x+s*p.z,p.y,-s*p.x+c*p.z);}
+float hash(float n){return fract(sin(n)*43758.5453);}
+vec3 rampRibbon(float t){
+  vec3 rose=vec3(1.15,0.45,0.75);
+  vec3 ice=vec3(0.40,0.88,1.25);
+  vec3 lilac=vec3(0.90,0.48,1.25);
+  vec3 gold=vec3(1.20,0.88,0.48);
+  vec3 c=mix(rose,ice,smoothstep(0.10,0.34,t));
+  c=mix(c,lilac,smoothstep(0.42,0.62,t));
+  c=mix(c,gold,smoothstep(0.70,0.92,t));
+  return c;
+}
+void main(){
+  vec3 p=aP;
+  vec3 col=aColor;
+  float alpha=1.0, sz=aSize, bright=1.0, bl=1.0;
+  float ph=aSeed*6.2831853;
+  vec2 jit=vec2(0.0);
+  float flare=0.0, fscale=1.0, farm=14.0, fhw=1.0;
+  float glowW=0.0, coreW=1.0, haloW=0.18, bok=0.0;
+  float backDim=0.0, scrMul=1.0;
+  bool screen=false;
+  bool snow=false;
+  vec2 ndc=vec2(0.0);
+
+  float phase=fract(uTime/uCycle);
+  float rootFlash=exp(-phase*5.0);
+  float sfd=(phase-0.40)*8.0;
+  float starFlash=exp(-sfd*sfd);
+  float travel=clamp(phase/0.40,0.0,1.25);
+
+  if(aType<0.5){
+    float f=aExtra;
+    float o=smoothstep(0.55,1.0,f);
+    float h=clamp(p.y/7.6,0.0,1.0);
+    p.xz*=1.0+0.012*o*sin(uTime*0.6+p.y*0.9+ph);
+    jit=uTrDrift*o*vec2(sin(uTime*0.9+ph*3.0)+0.5*sin(uTime*1.9+ph*7.0),
+                        cos(uTime*0.8+ph*5.0)+0.5*cos(uTime*1.7+ph*11.0))/1.5;
+    float tw=0.65+0.35*sin(uTime*(1.2+aSeed*2.4)+ph*9.0);
+    float dh=(h-travel*0.95)*5.0;
+    float wv=exp(-dh*dh);
+    bright=uTrBright*tw*(1.0+uTrWave*wv+0.08*rootFlash*(1.0-h));
+    alpha=uTrAlpha*(0.65+0.35*o);
+    sz=aSize*uTrSize;
+    backDim=0.22;
+    bl=uTrBloom;
+  }else if(aType<1.5){
+    bool ground=aExtra>0.5;
+    float t=ground?aP.x*0.34:fract(aP.x+uTime*uRbSpeed*(0.88+0.24*aSeed));
+    float taper=0.30+0.70*(1.0-t);
+    float ang=aP.y+t*6.2831853*uRbTurns+uTime*uRbRot;
+    float R=uRbR0*(1.0-t)+uRbRmin;
+    float b1=aP.z;
+    float b2=(hash(aSeed*91.7)-0.5)*2.0;
+    float w=uRbW*taper;
+    float coreK=exp(-b1*b1*1.1);
+    float edgeK=exp(-abs(b1)*0.8);
+    if(!ground){
+      float rad=R+b1*w;
+      float y=uRbY0+t*uRbH+uRbTilt*R*sin(ang)+b2*w*0.55;
+      p=vec3(cos(ang)*rad,y,sin(ang)*rad);
+      float d=fract(phase-t);
+      float comet=exp(-d*6.0);
+      float flow=pow(0.5+0.5*sin(t*46.0-uTime*1.6+ph),6.0);
+      float tw=pow(max(sin(uTime*(1.8+aSeed*2.2)+ph*11.0),0.0),12.0);
+      bright=uRbBright*(0.60+0.75*coreK+0.45*flow+uRbComet*comet*(0.4+coreK))+tw*1.4;
+      alpha=uRbAlpha*(0.30+0.70*edgeK)*smoothstep(0.0,0.05,t)*(1.0-smoothstep(0.90,1.0,t));
+      sz=aSize*uRbSize*(0.92+0.35*coreK+0.30*flow+0.5*tw+0.5*comet);
+      backDim=0.75;
+    }else{
+      float rad=R+b1*w*1.8;
+      float y=uDY+0.20+0.08*sin(ang*3.0+uTime*0.8)+b2*0.05;
+      p=vec3(cos(ang)*rad,y,sin(ang)*rad);
+      float tw=pow(max(sin(uTime*(1.5+aSeed*2.0)+ph*9.0),0.0),10.0);
+      bright=uRbBright*(0.65+0.5*coreK)+tw*0.9;
+      alpha=uRbAlpha*0.52*edgeK*(1.0-smoothstep(0.18,0.34,t))*smoothstep(0.0,0.04,t);
+      sz=aSize*uRbSize*0.78*(0.8+0.5*tw);
+    }
+    col=mix(rampRibbon(t),vec3(1.0,0.97,0.95),aColor.g)*aColor.r;
+    bl=0.75;
+  }else if(aType<2.5){
+    float h=clamp(aP.y/7.6,0.0,1.0);
+    p.xz*=1.0+0.012*sin(uTime*0.6+p.y*0.9+ph);
+    float tw=pow(0.5+0.5*sin(uTime*(0.8+aSeed*2.2)+ph*17.0),3.0);
+    float dh=(h-travel*0.95)*5.0;
+    float wv=exp(-dh*dh);
+    bright=uLtBright*(0.50+0.90*tw+0.9*wv);
+    alpha=uLtAlpha;
+    sz=aSize*uLtSize*(0.9+0.6*tw+0.4*wv);
+    haloW=0.40;
+    backDim=0.45;
+    bl=0.65;
+  }else if(aType<3.5){
+    float shimmer=0.7+0.3*sin(p.y*7.0-uTime*3.0+ph);
+    bright=uTrunkB*(0.95+0.5*rootFlash)*shimmer;
+    alpha=0.48*(1.0-smoothstep(1.0,1.7,p.y));
+    haloW=0.28;
+    bl=0.35;
+  }else if(aType<4.5){
+    float a=aP.x+uTime*0.04*(0.5+aSeed);
+    p=vec3(cos(a)*aP.y,aP.z+0.06*sin(uTime*0.6+ph*5.0),sin(a)*aP.y);
+    alpha=0.16*(1.0-smoothstep(2.4,3.9,aP.y))*(0.7+0.3*sin(uTime*0.8+ph*7.0));
+    bright=0.9+0.25*rootFlash;
+    bl=0.25;
+  }else if(aType<5.5){
+    p=vec3(0.0,0.35,0.0);
+    float k=aExtra;
+    glowW=1.0; coreW=0.0; haloW=0.0;
+    sz=mix(uRootSize,uRootSize*0.4,k);
+    bright=uRootBright*(0.85+0.35*rootFlash)*mix(1.0,1.5,k);
+    alpha=mix(0.42,0.50,k);
+    bl=0.35;
+  }else if(aType<6.5){
+    float pulse=0.94+0.06*sin(uTime*uStarPulse);
+    float sx=aP.x*pulse, sy=aP.y*pulse;
+    p=vec3(sx*cos(uRotY),uStarY+sy,sx*sin(uRotY));
+    float tw=pow(max(sin(uTime*(1.8+aSeed*2.5)+ph*13.0),0.0),10.0);
+    bright=uStarBright*(0.85+0.6*tw+0.9*starFlash);
+    alpha=0.95;
+    sz=aSize*(1.0+0.6*tw);
+    haloW=0.35;
+    bl=1.0;
+  }else if(aType<7.5){
+    float pulse=0.92+0.08*sin(uTime*uStarPulse);
+    float tw=pow(max(sin(uTime*(0.9+aSeed)+ph*5.0),0.0),8.0);
+    p=vec3(aP.x*cos(uRotY),uStarY+aP.y,aP.x*sin(uRotY));
+    flare=1.0; fscale=uStarCore; farm=uStarArm; fhw=0.8; haloW=0.22;
+    if(aExtra<0.5){
+      glowW=uStarGlow*0.6;
+      sz=uStarFlarePx*0.6667*(pulse+0.5*starFlash);
+      bright=uStarFlareBright*(1.0+1.2*starFlash);
+      alpha=1.0;
+    }else{
+      fscale=uStarCore*1.5;
+      sz=uStarFlarePx*0.6667*aSize*(0.5+0.9*tw);
+      bright=uStarFlareBright*0.9*(0.4+tw);
+      alpha=0.95;
+    }
+    bl=1.0;
+  }else if(aType<8.5){
+    p+=1.2*vec3(sin(uTime*0.05+ph*3.0),sin(uTime*0.04+ph*5.0),cos(uTime*0.05+ph*7.0));
+    float f=fract(uTime*0.05*(0.5+aSeed)+aSeed*13.0);
+    float flash=exp(-f*f*900.0);
+    alpha=0.32+0.25*sin(uTime*(0.5+aSeed)+ph*4.0)+flash*1.25;
+    sz=aSize*(1.1+flash*1.8);
+  }else if(aType<9.5){
+    screen=true;
+    ndc=aP.xy;
+    float tw=0.55+0.45*sin(uTime*(0.5+aSeed*0.9)+ph*5.0);
+    flare=1.0; fscale=10.0; farm=38.0; fhw=1.0; haloW=0.25;
+    sz=uBgFlarePx*0.6667*aSize*(0.8+0.6*tw);
+    scrMul=1.5;
+    bright=0.7+0.9*tw;
+    alpha=0.95;
+  }else if(aType<10.5){
+    float a=aP.x+uTime*0.02*(0.5+aSeed);
+    p=vec3(cos(a)*aP.y,aP.z+0.2*sin(uTime*0.3+ph),sin(a)*aP.y);
+    bok=1.0; coreW=0.0; haloW=0.0;
+    alpha=uBokehAlpha*(0.7+0.4*sin(uTime*0.5+ph*3.0));
+  }else if(aType<11.5){
+    snow=true;
+    float layer=aExtra;
+    float tS=uTime*uSnMove;
+    float spd=(0.35+0.25*layer)*(0.8+0.4*aSeed);
+    float yy=mod(aP.y-tS*spd,17.0);
+    float wy=yy-2.5;
+    float xx=aP.x+tS*0.3*(0.5+0.25*layer);
+    float zz=aP.z+tS*0.08;
+    xx=mod(xx+16.0,32.0)-16.0;
+    zz=mod(zz+16.0,32.0)-16.0;
+    xx+=uSnMicro*sin(uTime*(0.30+aSeed*0.4)+ph);
+    zz+=uSnMicro*cos(uTime*(0.26+aSeed*0.4)+ph*1.7);
+    wy+=uSnMicro*0.6*sin(uTime*(0.34+aSeed*0.3)+ph*2.3);
+    p=vec3(xx,wy,zz);
+    float fadeGround=smoothstep(-0.1,1.3,wy);
+    float fadeTop=1.0-smoothstep(12.0,14.5,wy);
+    float tw=0.80+0.20*sin(uTime*(0.8+aSeed*1.4)+ph*7.0);
+    float spark=pow(max(sin(uTime*(1.4+aSeed*2.4)+ph*13.0),0.0),24.0)*uSnSpark;
+    float lay=layer<0.5?0.80:(layer<1.5?0.92:0.40);
+    alpha=uSnAlpha*lay*fadeGround*fadeTop*tw;
+    bright=1.0+0.8*spark;
+    sz=aSize*uSnSize*(1.1+0.6*spark);
+    if(layer>1.5){coreW=0.0;haloW=0.0;glowW=1.2;}
+    else if(layer>0.5){coreW=1.0;haloW=0.50;}
+    else{coreW=1.0;haloW=0.25;}
+    bl=0.0;
+  }else{
+    float r=aP.y;
+    float kind=floor(aExtra*0.5+0.001);
+    float hn=aExtra-kind*2.0;
+    float ang=aP.x-uTime*uSpin;
+    float wph=r*uWF-uTime*uWV;
+    float fade=exp(-r/uWD);
+    float pr=phase*uDR*1.15;
+    float dp=(r-pr)/0.9;
+    float pulse=exp(-dp*dp)*(1.0-phase*0.7);
+    p=vec3(cos(ang)*r,uDY+aP.z+uWA*fade*sin(wph)+uPulseW*pulse,sin(ang)*r);
+    float crest=pow(0.5+0.5*sin(wph),6.0);
+    bright=uDB*(1.0+uWP*crest*(0.5+0.7*fade)+uPulseB*pulse);
+    alpha=uDA*(1.0-smoothstep(uDR*0.85,uDR,r))*mix(uCD,1.0,smoothstep(0.6,3.0,r));
+    sz=aSize*uDSz;
+    if(kind>1.5){
+      float tw=0.55+0.45*sin(uTime*(0.8+aSeed)+ph*13.0);
+      tw=tw*tw;
+      flare=tw; fscale=uFlS; farm=uFlS*14.0; fhw=1.0;
+      sz*=uFlS*(0.8+0.4*tw);
+      bright+=tw*1.3;
+      alpha=max(alpha,0.90);
+    }else if(kind>0.5){
+      float tw=pow(max(sin(uTime*uSpS*(0.6+aSeed)+ph*13.0),0.0),16.0);
+      bright+=uSpB*tw*1.3;
+      sz*=1.0+1.4*tw;
+      alpha=max(alpha,0.8);
+    }else{
+      alpha*=0.90+0.15*sin(uTime*(0.7+aSeed)+ph*5.0);
+      if(uBP>0.5) alpha*=0.2+0.8*hn*hn;
+    }
+  }
+
+  if(uBP>0.5) alpha*=bl;
+
+  if(screen){
+    gl_Position=vec4(ndc,0.0,1.0);
+    gl_PointSize=clamp(sz*uK*uPR*scrMul,1.0,uMaxPt);
+  }else{
+    vec3 q=p-vec3(0.0,uCY,0.0);
+    q=rotY(q,uRotY);
+    float c=cos(uRotX), s2=sin(uRotX);
+    q=vec3(q.x,c*q.y-s2*q.z,s2*q.y+c*q.z);
+    float front=q.z;
+    q.z-=uDist;
+    float w=-q.z;
+    if(w<0.4){
+      gl_Position=vec4(0.0,0.0,-2.0,1.0);
+      gl_PointSize=0.0;
+      vC=vec4(0.0);
+      vP1=vec4(0.0);
+      vP2=vec4(0.0,0.0,1.0,0.0);
+      return;
+    }
+    if(snow) alpha*=smoothstep(3.0,9.0,w);
+    gl_Position=vec4(q.x*1.6/uAspect,q.y*1.6,0.0,w);
+    gl_Position.xy+=jit*uPR*2.0/uRes*w;
+    gl_PointSize=clamp(sz*uK*uPR*30.0/w,1.0,uMaxPt);
+    alpha*=1.0-backDim*(1.0-smoothstep(-3.5,3.5,front));
+  }
+  vC=vec4(col*bright*uBoost,bok);
+  vP1=vec4(alpha,flare,fscale,farm);
+  vP2=vec4(fhw,glowW,coreW,haloW);
+}
+`;
+const FS=`
+precision mediump float;
+varying vec4 vC;
+varying vec4 vP1;
+varying vec4 vP2;
+void main(){
+  vec2 c=gl_PointCoord-0.5;
+  float r=length(c)*2.0;
+  float alpha=vP1.x;
+  float flare=vP1.y;
+  float scale=vP1.z;
+  float arm=vP1.w;
+  if(flare<=0.0&&r>1.0)discard;
+  float d=r*scale;
+  float core=exp(-d*d*6.5)*vP2.z;
+  float halo=exp(-d*d*2.2)*vP2.w;
+  float arms=0.0;
+  if(flare>0.0){
+    float ax=abs(c.x), ay=abs(c.y);
+    arms=(exp(-ax*arm)*max(1.0-ay*2.0,0.0)+vP2.x*exp(-ay*arm)*max(1.0-ax*2.0,0.0))*flare;
+  }
+  float glow=exp(-r*r*4.5)*vP2.y;
+  float bokeh=0.0;
+  if(vC.a>0.0){
+    bokeh=(1.0-smoothstep(0.78,1.0,r))*(0.65+0.35*smoothstep(0.45,0.92,r));
+  }
+  float a=(core+halo+arms+glow+bokeh)*alpha;
+  if(a<0.0025)discard;
+  gl_FragColor=vec4(vC.rgb,a);
+}
+`;
+const QVS=`
+precision highp float;
+attribute vec2 aQ; varying vec2 vUv;
+void main(){vUv=aQ*0.5+0.5;gl_Position=vec4(aQ,0.0,1.0);}`;
+const BFS=`
+precision mediump float;
+varying vec2 vUv; uniform sampler2D uTex; uniform vec2 uDir;
+void main(){
+  vec3 c=texture2D(uTex,vUv).rgb*0.227;
+  c+=texture2D(uTex,vUv+uDir*1.385).rgb*0.316;
+  c+=texture2D(uTex,vUv-uDir*1.385).rgb*0.316;
+  c+=texture2D(uTex,vUv+uDir*3.231).rgb*0.070;
+  c+=texture2D(uTex,vUv-uDir*3.231).rgb*0.070;
+  gl_FragColor=vec4(c,1.0);
+}`;
+const CFS=`
+precision mediump float;
+varying vec2 vUv; uniform sampler2D uTex; uniform float uStr;
+void main(){gl_FragColor=vec4(texture2D(uTex,vUv).rgb*uStr,1.0);}`;
+function sh(t,src){const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;}
+function mkProg(v,f){const p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,v));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,f));
+  gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));return p;}
+const prog=mkProg(VS,FS), blurP=mkProg(QVS,BFS), compP=mkProg(QVS,CFS);
+
+const T=[],P=[],S=[],E=[],C=[],X=[];
+function add(t,p,s,e,c,x){T.push(t);P.push(p[0],p[1],p[2]);S.push(s);E.push(e);C.push(c[0],c[1],c[2]);X.push(x||0);}
+const R=Math.random;
+function mixc(a,b,m){return [a[0]*(1-m)+b[0]*m,a[1]*(1-m)+b[1]*m,a[2]*(1-m)+b[2]*m];}
+function mulc(a,k){return [a[0]*k,a[1]*k,a[2]*k];}
+const dens=mobile?CONFIG.mobileDensity:1;
+const N=x=>Math.max(1,Math.round(x*dens));
+const G=[];
+let gStart=0;
+function gBegin(){gStart=T.length;}
+function gEnd(scale,glow){G.push({s:gStart,n:T.length-gStart,scale:scale,glow:glow});}
+const TAU=Math.PI*2;
+
+gBegin();
+for(let i=0;i<N(CONFIG.backgroundStars);i++){
+  const r=25+R()*55,th=R()*TAU,ph=Math.acos(2*R()-1),b=0.60+R()*0.40;
+  const tint=R()<0.25?[b*0.85,b*0.9,b]:[b,b,b];
+  add(8,[r*Math.sin(ph)*Math.cos(th),r*Math.cos(ph)*0.8+3,r*Math.sin(ph)*Math.sin(th)],1.4+R()*2.0,R(),tint,0);
+}
+gEnd(true,false);
+
+gBegin();
+const NFL=Math.round(CONFIG.bgFlareCount*(mobile?0.7:1));
+for(let i=0;i<NFL;i++){
+  const side=R()<0.5?-1:1;
+  add(9,[side*(0.30+0.65*R()),-0.05+0.95*R(),0],0.5+0.6*R(),R(),R()<0.6?[1.0,0.96,0.90]:[0.80,0.88,1.0],0);
+}
+gEnd(false,false);
+
+gBegin();
+const BOKEH_COL=[[1.0,0.80,0.50],[1.0,0.50,0.80],[0.55,0.72,1.0],[0.80,0.62,1.0]];
+for(let i=0;i<N(CONFIG.bokehCount);i++){
+  add(10,[R()*TAU,4+9*R(),-0.2+1.6*R()],7+10*R(),R(),BOKEH_COL[Math.floor(R()*BOKEH_COL.length)],0);
+}
+gEnd(false,false);
+
+gBegin();
+const SNOW_COL=[[1.00,0.98,1.00],[1.00,0.98,1.00],[1.00,0.86,0.94],[0.86,0.93,1.00]];
+const NSN=CONFIG.snowOn?Math.round(CONFIG.snowCount*(mobile?0.5:1)):0;
+for(let i=0;i<NSN;i++){
+  const rl=R();
+  const layer=rl<CONFIG.snowNear?2:(rl<CONFIG.snowNear+0.30?1:0);
+  const size=layer===2?3.5+3.0*R():(layer===1?1.5+1.2*R():1.2+0.9*R());
+  add(11,[(R()-0.5)*32,R()*17,(R()-0.5)*32],size,R(),SNOW_COL[Math.floor(R()*4)],layer);
+}
+gEnd(false,false);
+
+const TIERS=[
+  {yb:1.00,ya:3.70,rb:3.60},
+  {yb:2.50,ya:4.85,rb:2.90},
+  {yb:3.80,ya:5.85,rb:2.25},
+  {yb:4.95,ya:6.70,rb:1.60},
+  {yb:5.90,ya:7.45,rb:1.00}
+];
+const TW=TIERS.map(t=>t.rb*t.rb+0.5);
+const TWS=TW.reduce((a,b)=>a+b,0);
+function pickTier(){let x=R()*TWS;for(let k=0;k<TIERS.length;k++){x-=TW[k];if(x<=0)return k;}return TIERS.length-1;}
+function tierPoint(k,v,f,a){
+  const t0=TIERS[k];
+  let r=t0.rb*v*f;
+  let y=t0.ya+(t0.yb-t0.ya)*v;
+  const rn=r/t0.rb;
+  y-=CONFIG.treeDroop*rn*rn;
+  if(v>0.82){
+    const s=Math.min((v-0.82)/0.3,1);
+    const fe=Math.pow(Math.abs(Math.sin(a*(7+k))),3);
+    r*=1+0.16*fe*s;
+    y-=CONFIG.treeFeather*fe*s;
+  }
+  return [Math.cos(a)*r,y,Math.sin(a)*r];
+}
+const C_HOT=[1.20,0.22,0.72],C_ROSE=[1.20,0.42,0.88],C_ORCH=[0.92,0.25,1.20],C_VIO=[0.62,0.28,1.20];
+const C_LP=[1.20,0.75,0.98],C_WH=[1.20,0.96,1.15];
+function pickBody(k){
+  const x=R(),wv=0.12+0.26*(k/4);
+  if(x<wv)return C_VIO;
+  if(x<wv+0.22)return C_ORCH;
+  if(x<wv+0.52)return C_ROSE;
+  return C_HOT;
+}
+gBegin();
+for(let i=0;i<N(CONFIG.treeCount);i++){
+  const k=pickTier();
+  const a=R()*TAU;
+  const roll=R();
+  let v,f,shade,col,size;
+  if(roll<0.56){
+    v=0.2+0.8*Math.pow(R(),0.6);f=0.88+0.12*R();
+    shade=0.38+0.62*v;col=pickBody(k);size=0.72+0.6*R();
+  }else if(roll<0.70){
+    v=0.84+0.28*R();f=0.9+0.12*R();
+    shade=0.90;
+    const q=R();col=q<0.28?C_LP:(q<0.88?C_ROSE:C_WH);size=0.82+0.6*R();
+  }else{
+    v=0.1+0.9*R();f=Math.sqrt(R())*0.9;
+    shade=0.30+0.30*v;
+    const q=R();col=q<0.4?C_ORCH:(q<0.7?C_VIO:C_HOT);size=0.62+0.5*R();
+  }
+  const pt=tierPoint(k,v,f,a);
+  add(0,pt,size,R(),mulc(col,shade),Math.min(f,1));
+}
+gEnd(true,true);
+
+const NRIB=Math.round(CONFIG.ribbonCount*(mobile?0.55:1));
+gBegin();
+for(let s=0;s<CONFIG.ribbonStrands;s++){
+  const base=s*TAU/CONFIG.ribbonStrands;
+  for(let i=0;i<NRIB;i++){
+    const b1=(R()+R()+R()-1.5)*1.35;
+    const white=R()<0.2?0.3+0.3*R():0.0;
+    add(1,[R(),base,b1],0.88+0.5*R(),R(),[0.88+0.12*R(),white,0],0);
+  }
+}
+gEnd(false,true);
+gBegin();
+for(let i=0;i<Math.round(CONFIG.groundTrace*(mobile?0.55:1));i++){
+  const base=Math.floor(R()*CONFIG.ribbonStrands)*TAU/CONFIG.ribbonStrands;
+  const b1=(R()+R()+R()-1.5)*1.35;
+  add(1,[R(),base,b1],0.78+0.5*R(),R(),[0.90+0.10*R(),R()<0.3?0.4:0.0,0],1);
+}
+gEnd(false,true);
+
+const LCOL=[[1.20,0.75,0.45],[1.20,0.92,0.85],[1.20,0.45,0.80],[0.50,0.85,1.20],[0.85,0.55,1.20]];
+gBegin();
+const NLT=Math.round(CONFIG.lightCount*(mobile?0.55:1));
+for(let i=0;i<NLT;i++){
+  const k=pickTier();
+  const pt=tierPoint(k,0.35+0.65*R(),1.0,R()*TAU);
+  const big=R()<0.05;
+  add(2,[pt[0]*1.02,pt[1],pt[2]*1.02],big?2.6:1.0+0.8*R(),R(),LCOL[Math.floor(R()*LCOL.length)],0);
+}
+gEnd(false,true);
+
+gBegin();
+for(let i=0;i<Math.round(CONFIG.trunkCount*(mobile?0.55:1));i++){
+  const y=-0.25+1.85*Math.pow(R(),1.2);
+  const a=R()*TAU;
+  const r=(0.12+0.26*Math.sqrt(R()))*(1+1.6*Math.exp(-(y+0.25)*3.2));
+  add(3,[Math.cos(a)*r,y,Math.sin(a)*r],0.6+0.6*R(),R(),R()<0.6?[1.1,0.9,0.65]:[1.1,0.96,0.9],0);
+}
+gEnd(false,true);
+
+gBegin();
+for(let i=0;i<N(CONFIG.mistCount);i++){
+  const col=R()<0.5?[1.20,0.55,0.80]:[0.82,0.58,1.20];
+  add(4,[R()*TAU,0.4+3.5*Math.pow(R(),0.8),-0.2+0.9*R()*R()],1.4+1.2*R(),R(),mulc(col,0.95),0);
+}
+gEnd(true,true);
+
+gBegin();
+add(5,[0,0,0],1,R(),[1.20,0.78,0.50],0);
+add(5,[0,0,0],1,R(),[1.20,0.92,0.75],1);
+gEnd(false,true);
+
+const SV=[];
+for(let i=0;i<10;i++){
+  const rad=i%2===0?CONFIG.starOuterRadius:CONFIG.starInnerRadius;
+  const a=Math.PI/2+i*Math.PI/5;
+  SV.push([Math.cos(a)*rad,Math.sin(a)*rad]);
+}
+gBegin();
+for(let i=0;i<Math.round(CONFIG.starParticles*(mobile?0.65:1));i++){
+  const k=Math.floor(R()*10),a=SV[k],b=SV[(k+1)%10];
+  let x,y;
+  if(R()<0.58){const t=R();x=a[0]+(b[0]-a[0])*t;y=a[1]+(b[1]-a[1])*t;}
+  else{let u=R(),v=R();if(u+v>1){u=1-u;v=1-v;}x=a[0]*u+b[0]*v;y=a[1]*u+b[1]*v;}
+  add(6,[x,y,0],CONFIG.starParticleSize*(0.80+R()*0.55),R(),R()<0.72?[1.20,0.88,0.55]:[1.20,0.96,0.85],0);
+}
+gEnd(false,true);
+gBegin();
+add(7,[0,0,0],1,R(),[1.20,0.92,0.70],0);
+const MINI=[[-1.25,0.55,0.45],[1.35,0.20,0.35],[0.80,1.05,0.30],[-0.70,-0.45,0.25],[0.30,1.60,0.22]];
+for(const m of MINI){add(7,[m[0],m[1],0],m[2],R(),[1.20,0.94,0.80],1);}
+gEnd(false,true);
+
+const D_DEEPVIOLET=[0.35,0.15,0.88];
+const D_NEONPINK=[1.15,0.30,0.85];
+const D_LILAC=[0.78,0.40,1.15];
+const D_DARKPINK=[0.48,0.18,0.58];
+const D_ICEBLUE=[0.35,0.78,1.25];
+const D_GOLD=[1.15,0.75,0.48];
+
+const DR=CONFIG.discRadius,DH=CONFIG.duneHeight,RINGS=CONFIG.duneRings,FLOOR=CONFIG.duneFloor;
+const IRR=CONFIG.duneIrregular,GEN=Math.min(Math.max(CONFIG.duneGentle,0.5),0.9);
+function dune(r,a){
+  const flat=Math.min(Math.max((r-1.6)/1.4,0),1);
+  let t=Math.sqrt(Math.max(r-1.6,0)/(DR-1.6))*RINGS;
+  t+=IRR*(0.12*Math.sin(a*3+r*0.4)+0.08*Math.sin(a*5-r*0.7));
+  const f=t-Math.floor(t);
+  let pr=f<GEN?Math.sin(f/GEN*Math.PI/2):Math.cos((f-GEN)/(1-GEN)*Math.PI/2);
+  pr=Math.pow(Math.min(Math.max(pr,0),1),0.7);
+  const k=Math.floor(t);
+  let amp=0.55+0.35*Math.sin(k*1.3+0.5);
+  amp*=1+IRR*0.25*Math.sin(a*4+k);
+  const small=CONFIG.duneRipple*Math.sin(r*9+a*2)*IRR;
+  return [(FLOOR+(1-FLOOR)*pr)*amp*DH*flat+small,pr];
+}
+const DISC_N=Math.round(CONFIG.discCount*(mobile?0.5:1));
+gBegin();
+let made=0;
+while(made<DISC_N){
+  const r=0.5+(DR-0.5)*Math.sqrt(R());
+  const a=R()*TAU;
+  const d=dune(r,a),h=d[0],x=d[1];
+  if(R()>CONFIG.duneFill+(1-CONFIG.duneFill)*x)continue;
+  
+  let col=x<0.5?mixc(D_DEEPVIOLET,D_LILAC,x*2):mixc(D_LILAC,D_NEONPINK,x*2-1);
+  if(x<0.35) col=mixc(col,D_DARKPINK,0.65);
+  if(R()<CONFIG.iceRate) col=mixc(col,D_ICEBLUE,0.75);
+
+  col=mixc(col,D_GOLD,Math.exp(-r/2.4)*CONFIG.duneWarm*0.45);
+  col=mulc(col,(0.72+0.28*R())*((1-CONFIG.duneContrast)+CONFIG.duneContrast*(0.35+0.65*x)));
+
+  let kind=0,size=0.60+R()*0.55;
+  if(R()<CONFIG.sparkleRate){
+    if(R()<CONFIG.flareRate){kind=2;col=[1.25,1.25,1.25];}
+    else{kind=1;col=mixc(col,R()<0.5?[0.95,0.45,1.25]:[0.65,0.85,1.25],0.85);}
+  }
+  add(12,[a,r,h+(R()-0.5)*0.05],size,R(),col,kind*2+x*0.98);
+  made++;
+}
+gEnd(true,true);
+const COUNT=T.length;
+
+gl.useProgram(prog);
+const pbufs=[];
+function mkBuf(name,data,size){const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.STATIC_DRAW);pbufs.push([gl.getAttribLocation(prog,name),b,size]);}
+mkBuf(`aType`,T,1);mkBuf(`aP`,P,3);mkBuf(`aSize`,S,1);mkBuf(`aSeed`,E,1);mkBuf(`aColor`,C,3);mkBuf(`aExtra`,X,1);
+function bindParticles(){gl.useProgram(prog);
+  for(const [l,b,s] of pbufs){if(l<0)continue;gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,s,gl.FLOAT,false,0,0);}}
+const qbuf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,qbuf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+function drawQuad(p){gl.useProgram(p);
+  for(const [l] of pbufs){if(l>=0)gl.disableVertexAttribArray(l);}
+  const l=gl.getAttribLocation(p,`aQ`);gl.bindBuffer(gl.ARRAY_BUFFER,qbuf);
+  gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,2,gl.FLOAT,false,0,0);
+  gl.drawArrays(gl.TRIANGLES,0,6);gl.disableVertexAttribArray(l);}
+
+const U=n=>gl.getUniformLocation(prog,n);
+const set=(n,v)=>gl.uniform1f(U(n),v);
+const uTime=U(`uTime`),uRotY=U(`uRotY`),uRotX=U(`uRotX`),uDist=U(`uDist`),uAspect=U(`uAspect`),uRes=U(`uRes`),uPRl=U(`uPR`),uBPl=U(`uBP`);
+set(`uCY`,CONFIG.centerY);
+set(`uCycle`,CONFIG.pulseCycle);
+set(`uK`,mobile?1.25:1.20);
+set(`uBoost`,mobile?1.30:1.25);
+set(`uMaxPt`,MAXPT);
+set(`uSnMove`,CONFIG.snowMove);set(`uSnMicro`,CONFIG.snowMicro);set(`uSnSpark`,CONFIG.snowSpark);
+set(`uSnSize`,CONFIG.snowSize);set(`uSnAlpha`,CONFIG.snowAlpha);set(`uSnStreakLen`,CONFIG.snowStreakLen);
+set(`uTrDrift`,CONFIG.treeDrift);set(`uTrSize`,CONFIG.treeSize);set(`uTrAlpha`,CONFIG.treeAlpha);
+set(`uTrBright`,CONFIG.treeBright);set(`uTrWave`,CONFIG.treeWave);set(`uTrBloom`,CONFIG.treeGlow);
+set(`uRbR0`,CONFIG.ribbonRadius);set(`uRbRmin`,CONFIG.ribbonRmin);set(`uRbTurns`,CONFIG.ribbonTurns);
+set(`uRbSpeed`,CONFIG.ribbonSpeed);set(`uRbRot`,CONFIG.ribbonRotate);set(`uRbW`,CONFIG.ribbonWidth);
+set(`uRbSize`,CONFIG.ribbonSize);set(`uRbAlpha`,CONFIG.ribbonAlpha);set(`uRbBright`,CONFIG.ribbonBright);
+set(`uRbY0`,CONFIG.ribbonY0);set(`uRbH`,CONFIG.ribbonHeight);set(`uRbTilt`,CONFIG.ribbonTilt);set(`uRbComet`,CONFIG.ribbonComet);
+set(`uLtSize`,CONFIG.lightSize);set(`uLtAlpha`,CONFIG.lightAlpha);set(`uLtBright`,CONFIG.lightBright);
+set(`uRootBright`,CONFIG.rootBright);set(`uRootSize`,CONFIG.rootSize);set(`uTrunkB`,CONFIG.trunkBright);
+set(`uStarY`,CONFIG.starY);set(`uStarBright`,CONFIG.starBright);set(`uStarPulse`,CONFIG.starPulseSpeed);
+set(`uStarFlarePx`,CONFIG.starFlarePx);set(`uStarFlareBright`,CONFIG.starFlareBright);
+set(`uStarCore`,CONFIG.starCoreShrink);set(`uStarArm`,CONFIG.starArm);set(`uStarGlow`,CONFIG.starGlow);
+set(`uBgFlarePx`,CONFIG.bgFlarePx);set(`uBokehAlpha`,CONFIG.bokehAlpha);
+set(`uDR`,DR);set(`uDY`,CONFIG.discY);set(`uDSz`,CONFIG.discSize);set(`uDA`,CONFIG.discAlpha);
+set(`uDB`,CONFIG.discBright);set(`uCD`,CONFIG.centerDim);
+set(`uSpin`,CONFIG.spinSpeed);set(`uWA`,CONFIG.waveAmp);set(`uWF`,CONFIG.waveFreq);set(`uWV`,CONFIG.waveSpeed);
+set(`uWD`,CONFIG.waveFade);set(`uWP`,CONFIG.wavePulse);
+set(`uSpS`,CONFIG.sparkleSpeed);set(`uSpB`,CONFIG.sparkleBoost);set(`uFlS`,CONFIG.flareSize);
+set(`uPulseB`,CONFIG.pulseBright);set(`uPulseW`,CONFIG.pulseWave);
+
+let fbo=[],tex=[],BW=1,BH=1;
+function mkTarget(w,h){const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  const f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);return [f,t];}
+function buildTargets(){for(const t of tex)gl.deleteTexture(t);for(const f of fbo)gl.deleteFramebuffer(f);
+  const k=CONFIG.bloomRes*(mobile?0.8:1);
+  BW=Math.max(1,Math.floor(cv.width*k));BH=Math.max(1,Math.floor(cv.height*k));
+  const a=mkTarget(BW,BH),b=mkTarget(BW,BH);fbo=[a[0],b[0]];tex=[a[1],b[1]];}
+
+let rotY=0,rotX=CONFIG.camTilt,dist=CONFIG.camDist*(mobile?1.12:1),drag=false,lx=0,ly=0,pinch=0;
+cv.addEventListener(`pointerdown`,e=>{drag=true;lx=e.clientX;ly=e.clientY;});
+addEventListener(`pointerup`,()=>drag=false);
+addEventListener(`pointermove`,e=>{if(!drag)return;
+  rotY+=(e.clientX-lx)*0.008;rotX+=(e.clientY-ly)*0.005;rotX=Math.max(-0.3,Math.min(0.9,rotX));lx=e.clientX;ly=e.clientY;});
+cv.addEventListener(`wheel`,e=>{dist=Math.max(5,Math.min(40,dist+e.deltaY*0.01));e.preventDefault();},{passive:false});
+cv.addEventListener(`touchmove`,e=>{if(e.touches.length===2){
+  const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+  if(pinch)dist=Math.max(5,Math.min(40,dist*pinch/d));pinch=d;}},{passive:true});
+cv.addEventListener(`touchend`,()=>pinch=0);
+function resize(){
+  cv.width=innerWidth*PR;cv.height=innerHeight*PR;
+  gl.useProgram(prog);
+  gl.uniform1f(uAspect,innerWidth/innerHeight);
+  gl.uniform2f(uRes,cv.width,cv.height);
+  buildTargets();
+  layoutText();
+}
+addEventListener(`resize`,resize);resize();
+
+gl.disable(gl.DEPTH_TEST);gl.enable(gl.BLEND);
+const bTex=gl.getUniformLocation(blurP,`uTex`),bDir=gl.getUniformLocation(blurP,`uDir`);
+const cTex=gl.getUniformLocation(compP,`uTex`),cStr=gl.getUniformLocation(compP,`uStr`);
+let Q=1,frames=0,acc=0,tuneStep=0;
+function drawGroups(glowOnly){
+  for(let i=0;i<G.length;i++){
+    const g=G[i];
+    if(glowOnly&&!g.glow)continue;
+    const n=Math.floor(g.n*(g.scale?Q:1));
+    if(n>0)gl.drawArrays(gl.POINTS,g.s,n);
+  }
+}
+const t0=performance.now();let last=t0;
+function loop(now){
+  const dt=Math.min((now-last)/1000,0.1);last=now;
+  if(CONFIG.adaptive&&tuneStep<6){
+    frames++;
+    if(frames>40)acc+=dt;
+    if(frames>=130){
+      const avg=acc/(frames-40);
+      if(avg>0.026&&Q>0.45)Q*=0.8;
+      frames=40;acc=0;tuneStep++;
+    }
+  }
+  if(!drag)rotY+=dt*CONFIG.autoRotate;
+  const tm=(now-t0)/1000;
+  bindParticles();
+  gl.uniform1f(uTime,tm);gl.uniform1f(uRotY,rotY);gl.uniform1f(uRotX,rotX);gl.uniform1f(uDist,dist);
+  const useBloom=CONFIG.bloomStrength>0;
+  if(useBloom){
+    gl.bindFramebuffer(gl.FRAMEBUFFER,fbo[0]);gl.viewport(0,0,BW,BH);
+    gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
+    gl.uniform1f(uPRl,PR*BW/cv.width);gl.uniform1f(uBPl,1);
+    drawGroups(true);
+    gl.disable(gl.BLEND);
+    for(let k=0;k<2;k++){
+      gl.useProgram(blurP);gl.uniform1i(bTex,0);gl.activeTexture(gl.TEXTURE0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,fbo[1]);gl.bindTexture(gl.TEXTURE_2D,tex[0]);
+      gl.uniform2f(bDir,CONFIG.bloomRadius*(k+1)/BW,0);drawQuad(blurP);
+      gl.useProgram(blurP);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,fbo[0]);gl.bindTexture(gl.TEXTURE_2D,tex[1]);
+      gl.uniform2f(bDir,0,CONFIG.bloomRadius*(k+1)/BH);drawQuad(blurP);
+    }
+    gl.enable(gl.BLEND);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,cv.width,cv.height);
+  gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);
+  if(useBloom){
+    gl.blendFunc(gl.ONE,gl.ONE);
+    gl.useProgram(compP);gl.uniform1i(cTex,0);gl.uniform1f(cStr,CONFIG.bloomStrength);
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex[0]);drawQuad(compP);
+  }
+  bindParticles();gl.uniform1f(uPRl,PR);gl.uniform1f(uBPl,0);
+  gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
+  drawGroups(false);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
